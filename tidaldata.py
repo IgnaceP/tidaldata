@@ -197,6 +197,21 @@ class TideData:
 
         return Peaks_times, Peaks_tides
 
+    def standardize(self, print_mean = True):
+        """
+        Method to standardize all water levels to its mean.
+        Original water levels are stored as a class attribute 'tides_original'
+        """
+
+        self.tides_original = self.tides.copy()
+        self.tides -= self.tide_mean
+
+        if print_mean:
+            print('Mean water level: ', self.tide_mean, ' m')
+
+
+
+
     def toLiquidBoundaryFile(self, start_time = 0, end_time = 0, output_path = 'LiquidBoundaryFile.lqd', base_level = 0):
         """
         Method to export a tidal series to a liquid boundary file for the TELEMAC 2D software
