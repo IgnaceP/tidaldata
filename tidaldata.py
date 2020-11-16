@@ -207,10 +207,7 @@ class TideData:
         self.tides -= self.tide_mean
 
         if print_mean:
-            print('Mean water level: ', self.tide_mean, ' m')
-
-
-
+            print('Mean water level: %.3f m' % self.tide_mean)
 
     def toLiquidBoundaryFile(self, start_time = 0, end_time = 0, output_path = 'LiquidBoundaryFile.lqd', base_level = 0):
         """
