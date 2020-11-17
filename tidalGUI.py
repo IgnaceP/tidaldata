@@ -15,7 +15,8 @@ from PyQt5.QtCore    import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui     import *
 import numpy as np
-from PIL import Image
+#from PIL import Image
+import matplotlib
 import matplotlib.dates as matdates
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -24,15 +25,15 @@ import matplotlib.image as mpimg
 from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
 
-import urllib
+#import urllib
 import os
-import math
-from shutil import copyfile
+#import math
+#from shutil import copyfile
 import pickle
-import time
-import gc
+#import time
+#import gc
 from datetime import datetime, timedelta
-import random
+#import random
 
 import tidaldata as tidd
 
@@ -93,6 +94,9 @@ class MyTable(QWidget):
         self.filenames = []
         self.tidedatasets = []
         self.plots = []
+        self.peaks = []
+        self.lows = []
+        self.plotcolors = list(matplotlib.colors.TABLEAU_COLORS.values())
 
         #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
         #-------------- Make the input widges --------------#
@@ -108,26 +112,6 @@ class MyTable(QWidget):
         Load.clicked.connect(self.openLoadFileNameDialog)
         Load.setToolTip('Load the output from a TELEMAC 2D simulation')
         Load.setStyleSheet("""
-        QPushButton {
-            border-width: 25px solid white;
-            border-radius: 5px;
-            color: rgb(180,180,180);
-            background-color: rgb(55, 55, 60);
-            min-height: 40px;
-            }
-        QPushButton:pressed {
-            color: rgb(120,120,120);
-            background-color: rgb(75, 75, 80);
-            }
-        """)
-
-
-        # Push button to clear all tidaldata objects
-        Clear = QPushButton('Clear all')
-        Clear.setFixedWidth(125)
-        Clear.clicked.connect(self.clearTable)
-        Clear.setToolTip('Load the output from a TELEMAC 2D simulation')
-        Clear.setStyleSheet("""
         QPushButton {
             border-width: 25px solid white;
             border-radius: 5px;
@@ -250,6 +234,7 @@ class MyTable(QWidget):
         self.SaveTable.setIcon(im)
         self.SaveTable.setDisabled(True)
         self.SaveTable.clicked.connect(self.saveTable)
+        self.SaveTable.setFixedSize(25,25)
         self.SaveTable.setStyleSheet("""
         QPushButton {
             border-width: 25px solid white;
@@ -268,6 +253,7 @@ class MyTable(QWidget):
         im = QIcon('support_files/load.png')
         self.LoadTable.setIcon(im)
         self.LoadTable.clicked.connect(self.loadTable)
+        self.LoadTable.setFixedSize(25,25)
         self.LoadTable.setStyleSheet("""
         QPushButton {
             border-width: 25px solid white;
@@ -281,6 +267,50 @@ class MyTable(QWidget):
             }
         """)
 
+        self.ClearTable = QPushButton()
+        self.ClearTable.setToolTip('Clear table content.')
+        im = QIcon('support_files/clear.png')
+        self.ClearTable.setIcon(im)
+        self.ClearTable.clicked.connect(self.clearTable)
+        self.ClearTable.setFixedSize(25,25)
+        self.ClearTable.setStyleSheet("""
+        QPushButton {
+            border-width: 25px solid white;
+            border-radius: 0px;
+            color: rgb(180,180,180);
+            background-color: rgb(55, 55, 60, 0);
+            }
+        QPushButton:pressed {
+            color: rgb(100,100,100,150);
+            background-color: rgb(25, 25, 25, 150);
+            }
+        """)
+
+        self.ShowPeaks = QPushButton()
+        self.ShowPeaks.setToolTip('Toggle view mode to peaks.')
+        im = QIcon('support_files/ring.png')
+        self.ShowPeaks.setIcon(im)
+        self.ShowPeaks.setCheckable(True)
+        self.ShowPeaks.clicked.connect(self.showPeaks)
+        self.ShowPeaks.setFixedSize(25,25)
+        self.ShowPeaks.setStyleSheet("""
+        QPushButton {
+            border-width: 25px solid white;
+            border-radius: 0px;
+            color: rgb(180,180,180);
+            background-color: rgb(55, 55, 60, 0);
+            }
+        QPushButton:checked {
+            border-style: outset;
+            border-width: 1px;
+            border-radius: 2px;
+            border-color: rgb(50,50,50);
+            color: rgb(100,100,100,150);
+            background-color: rgb(55, 55, 60, 0);
+            }
+        """)
+
+
         #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
         #-------------- Organize and set the layout --------------#
         #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
@@ -289,12 +319,11 @@ class MyTable(QWidget):
 
         grid_params = QGridLayout()
         grid_params.addWidget(Load, 0, 0)
-        grid_params.addWidget(Clear, 0, 1)
-        grid_params.addWidget(self.Standardize, 0, 2)
-        grid_params.addWidget(start_time, 0, 3)
-        grid_params.addWidget(self.start_time, 0, 4)
-        grid_params.addWidget(end_time, 0, 5)
-        grid_params.addWidget(self.end_time, 0, 6)
+        grid_params.addWidget(self.Standardize, 0, 1)
+        grid_params.addWidget(start_time, 0, 2)
+        grid_params.addWidget(self.start_time, 0, 3)
+        grid_params.addWidget(end_time, 0, 4)
+        grid_params.addWidget(self.end_time, 0, 5)
 
         grid_params.addWidget(ylim_top, 0, 7)
         grid_params.addWidget(self.ylim_top, 0, 8)
@@ -304,6 +333,8 @@ class MyTable(QWidget):
         table_but = QVBoxLayout()
         table_but.addWidget(self.SaveTable)
         table_but.addWidget(self.LoadTable)
+        table_but.addWidget(self.ClearTable)
+        table_but.addWidget(self.ShowPeaks)
         table_but.addStretch()
 
         self.grid.addLayout(grid_params, 0, 0, 1, 2)
@@ -409,15 +440,19 @@ class MyTable(QWidget):
             item.setForeground(QColor(180, 180, 180))
             self.Table.setItem(self.table_rows - 1, i, item)
 
+        # calculate peaks and lows
+        pt, pwl = td.getPeaks()
+        lt, lwl = td.getLows()
+        self.peaks.append([pt, pwl])
+        self.lows.append([lt, lwl])
+
         # plot the series on the figure
-        plot = self.ax.plot(td.times, td.tides, label = td.name)
+        plot = self.ax.plot(td.times, td.tides, label = td.name, c = self.plotcolors[self.table_rows - 1])
         color = plot[-1].get_color()
         item = self.Table.item(self.table_rows - 1, 0)
         item.setForeground(QColor(color))
         item = self.Table.item(self.table_rows - 1, 1)
         item.setForeground(QColor(color))
-
-        self.canvas.draw()
 
         # update attributes
         self.plots.append(plot)
@@ -429,6 +464,10 @@ class MyTable(QWidget):
 
         # enable load and save button
         self.SaveTable.setEnabled(True)
+
+        # update canvas
+        if self.ShowPeaks.isChecked(): self.showPeaks()
+        else: self.canvas.draw()
 
     def autoUpdateLims(self):
         t0,t1 = self.ax.get_xlim()
@@ -489,6 +528,8 @@ class MyTable(QWidget):
         self.plots = []
         self.tidedatasets = []
         self.filenames = []
+        self.peaks = []
+        self.lows = []
 
         self.table_rows = 1
 
@@ -518,7 +559,7 @@ class MyTable(QWidget):
         fn, _ = QFileDialog.getOpenFileName(self,"QFileDialog.getOpenFileName()", "","*.tdgui", options=options)
 
         if fn:
-            print('Loading pickle...')
+            print('Loading table...')
             load_object = pickle.load(open( fn, "rb" ))
             filenames = load_object['filenames']
             shifts = load_object['shifts']
@@ -526,13 +567,9 @@ class MyTable(QWidget):
             self.clearTable()
             self.filenames = filenames
 
-
-            print('Adding series to plot and table...')
             for i in range(len(self.filenames)):
                 self.addSeries(self.filenames[i])
 
-            print('Applying shifts...')
-            print(self.table_rows-1)
             for i in range(self.table_rows-1):
                 for j in range(2,6):
                     it = QTableWidgetItem(str(shifts[i,j-2]))
@@ -540,6 +577,35 @@ class MyTable(QWidget):
                 self.updateShifts(i, 2)
 
             print('Ready!')
+
+    def showPeaks(self):
+        if self.ShowPeaks.isChecked():
+
+            for i in range(len(self.tidedatasets)):
+                td = self.tidedatasets[i]
+                plot = self.plots[i][-1]
+                color = self.plotcolors[i]
+                color_transp = color[:7] + '33'
+                plot.set_color(color_transp)
+                pt, pwl = self.peaks[i]
+                lt, lwl = self.lows[i]
+                self.ax.plot(pt, pwl, linestyle = 'None', marker = 'o', mec = color, mfc = '#ffffff00', mew = 0.5)
+                self.ax.plot(lt, lwl, linestyle = 'None', marker = 'o', mec = color, mfc = '#ffffff00', mew = 0.5)
+
+            self.canvas.draw()
+
+        else:
+            self.ax.clear()
+            self.ax.grid('on')
+            self.ax.set_ylabel('Water Level [m]', fontweight = 'bold', fontsize = 9)
+            self.updateLims()
+
+            for i in range(len(self.tidedatasets)):
+                td = self.tidedatasets[i]
+                color = self.plotcolors[i][:7] + 'FF'
+                self.plots[i] = self.ax.plot(td.times, td.tides, c = color, label = td.name)
+
+            self.canvas.draw()
 
 #--------------------------------------------------------------------#
 # Execute the program
