@@ -36,9 +36,7 @@ import random
 
 import tidaldata as tidd
 
-
-
-os.chdir('/home/ignace/Custom_Libraries/t2viewer/')
+os.chdir('/home/ignace/Custom_Libraries/tidaldata/')
 #%%
 
 
@@ -60,7 +58,7 @@ class Main(QMainWindow):
         self.F = np.zeros([500,500])
 
         self.setWindowTitle(title)
-        #self.setWindowIcon(QIcon('support_files/logo.png'))
+        self.setWindowIcon(QIcon('support_files/Logo.png'))
         self.setGeometry(left,top,width, height)
 
         self.main_widget = MyTable(self)
@@ -107,7 +105,7 @@ class MyTable(QWidget):
         # Push button to load tidaldata object
         Load = QPushButton('Load .tid')
         Load.setFixedWidth(125)
-        Load.clicked.connect(self.openFileNameDialog)
+        Load.clicked.connect(self.openLoadFileNameDialog)
         Load.setToolTip('Load the output from a TELEMAC 2D simulation')
         Load.setStyleSheet("""
         QPushButton {
@@ -242,6 +240,47 @@ class MyTable(QWidget):
         self.createTable()
         self.table_rows = 1
 
+        # --------------#
+        # table buttons #
+        # --------------#
+
+        self.SaveTable = QPushButton()
+        self.SaveTable.setToolTip('Save the table content.')
+        im = QIcon('support_files/save.png')
+        self.SaveTable.setIcon(im)
+        self.SaveTable.setDisabled(True)
+        self.SaveTable.clicked.connect(self.saveTable)
+        self.SaveTable.setStyleSheet("""
+        QPushButton {
+            border-width: 25px solid white;
+            border-radius: 0px;
+            color: rgb(180,180,180);
+            background-color: rgb(55, 55, 60, 0);
+            }
+        QPushButton:pressed {
+            color: rgb(100,100,100,150);
+            background-color: rgb(25, 25, 25, 150);
+            }
+        """)
+
+        self.LoadTable = QPushButton()
+        self.LoadTable.setToolTip('Load previously saved table content.')
+        im = QIcon('support_files/load.png')
+        self.LoadTable.setIcon(im)
+        self.LoadTable.clicked.connect(self.loadTable)
+        self.LoadTable.setStyleSheet("""
+        QPushButton {
+            border-width: 25px solid white;
+            border-radius: 0px;
+            color: rgb(180,180,180);
+            background-color: rgb(55, 55, 60, 0);
+            }
+        QPushButton:pressed {
+            color: rgb(100,100,100,150);
+            background-color: rgb(25, 25, 25, 150);
+            }
+        """)
+
         #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
         #-------------- Organize and set the layout --------------#
         #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
@@ -262,9 +301,15 @@ class MyTable(QWidget):
         grid_params.addWidget(ylim_bot, 0, 9)
         grid_params.addWidget(self.ylim_bot, 0, 10)
 
-        self.grid.addLayout(grid_params, 0, 0)
-        self.grid.addWidget(self.canvas, 1, 0)
+        table_but = QVBoxLayout()
+        table_but.addWidget(self.SaveTable)
+        table_but.addWidget(self.LoadTable)
+        table_but.addStretch()
+
+        self.grid.addLayout(grid_params, 0, 0, 1, 2)
+        self.grid.addWidget(self.canvas, 1, 0, 1, 2)
         self.grid.addWidget(self.Table, 2, 0)
+        self.grid.addLayout(table_but, 2, 1)
 
         self.setLayout(self.grid)
 
@@ -274,37 +319,19 @@ class MyTable(QWidget):
         #-------------- Methods --------------#
         #-------------------------------------#
 
-    def openFileNameDialog(self):
+    def openLoadFileNameDialog(self):
         options = QFileDialog.Options()
         filename, _ = QFileDialog.getOpenFileName(self,"QFileDialog.getOpenFileName()", "","*.tid", options=options)
         print('Loading file...')
 
         if filename:
-
-            td = tidd.TideData.load(filename)
-            if self.Standardize.isChecked():
-                td.standardize()
-            self.tidedatasets.append(td)
-
-            self.filenames.append(filename)
-            self.Table.setRowCount(self.table_rows)
-
-            item = QTableWidgetItem(td.name)
-            item.setFlags(Qt.ItemIsEnabled)
-            self.Table.setItem(self.table_rows - 1, 0, item)
-            item = QTableWidgetItem('%.2f' % td.tide_range)
-            item.setFlags(Qt.ItemIsEnabled)
-            self.Table.setItem(self.table_rows - 1, 1, item)
-
-            for i in range(2,6):
-                item = QTableWidgetItem(str(0))
-                item.setForeground(QColor(180, 180, 180))
-                self.Table.setItem(self.table_rows - 1, i, item)
-
-            self.addSeries()
-            self.table_rows += 1
+            self.addSeries(filename)
 
     def createTable(self):
+        """
+        Method to initiate the table (set columns and column names)
+        """
+
         self.Table = QTableWidget()
         self.Table.setStyleSheet("""
         QTableWidget {
@@ -329,9 +356,10 @@ class MyTable(QWidget):
         self.Table.horizontalHeader().setSectionResizeMode(0,
             QHeaderView.Stretch)
 
-
-
     def initPlot(self):
+        """
+        Method to initiate the plot (draw axes, set labels, etc.)
+        """
         self.figure.subplots_adjust(left = 0.1, right = 0.94, bottom = 0.1, top = 0.9)
         self.ax = self.figure.add_subplot(111)
         self.ax.set_facecolor((45/255, 45/255, 45/255))
@@ -349,8 +377,39 @@ class MyTable(QWidget):
 
         self.ax.set_ylabel('Water Level [m]', fontweight = 'bold', fontsize = 9)
 
-    def addSeries(self):
-        td = self.tidedatasets[-1]
+    def addSeries(self, filename):
+        """
+        Method to add a series to the table and to plot the series on the plot.
+
+        args:
+            filename: (Required) Directory path string of the recently loaded TideData object
+        """
+
+        # load the TideData object and add to the attributed list
+        # add filename path to attributed list
+        # set row count of table
+        td = tidd.TideData.load(filename)
+        if self.Standardize.isChecked():
+            td.standardize()
+        self.tidedatasets.append(td)
+        self.filenames.append(filename)
+        self.Table.setRowCount(self.table_rows)
+
+        # set the name and range of the TideData object in the table
+        item = QTableWidgetItem(td.name)
+        item.setFlags(Qt.ItemIsEnabled)
+        self.Table.setItem(self.table_rows - 1, 0, item)
+        item = QTableWidgetItem('%.2f' % td.tide_range)
+        item.setFlags(Qt.ItemIsEnabled)
+        self.Table.setItem(self.table_rows - 1, 1, item)
+
+        # fill in zero for all shifts
+        for i in range(2,6):
+            item = QTableWidgetItem(str(0))
+            item.setForeground(QColor(180, 180, 180))
+            self.Table.setItem(self.table_rows - 1, i, item)
+
+        # plot the series on the figure
         plot = self.ax.plot(td.times, td.tides, label = td.name)
         color = plot[-1].get_color()
         item = self.Table.item(self.table_rows - 1, 0)
@@ -360,10 +419,16 @@ class MyTable(QWidget):
 
         self.canvas.draw()
 
+        # update attributes
         self.plots.append(plot)
+        self.table_rows += 1
 
+        # update all limits and make the table reactive
         self.autoUpdateLims()
         self.Table.cellChanged.connect(self.updateShifts)
+
+        # enable load and save button
+        self.SaveTable.setEnabled(True)
 
     def autoUpdateLims(self):
         t0,t1 = self.ax.get_xlim()
@@ -420,14 +485,61 @@ class MyTable(QWidget):
     def clearTable(self):
         self.Table.clearContents()
         self.Table.setRowCount(1)
+
         self.plots = []
+        self.tidedatasets = []
+        self.filenames = []
+
+        self.table_rows = 1
+
         self.ax.clear()
         self.ax.grid('on')
         self.canvas.draw()
 
+    def saveTable(self):
+        options = QFileDialog.Options()
+        fn, _ = QFileDialog.getSaveFileName(self,"QFileDialog.getSaveFileName()","","All Files (*);;tdgui Files (*.tdgui)", options=options)
+
+        if fn:
+            if fn[-6:] != '.tdgui': fn += '.tdgui'
+            shifts = np.zeros([self.table_rows-1, 4])
+            for j in range(2,6):
+                for i in range(self.table_rows-1):
+
+                    it = float(self.Table.item(i, j).text())
+                    shifts[i,j-2] = it
+
+            save_object = {'filenames': self.filenames, 'shifts': shifts}
+
+            pickle.dump(save_object, open(fn, "wb" ))
+
+    def loadTable(self):
+        options = QFileDialog.Options()
+        fn, _ = QFileDialog.getOpenFileName(self,"QFileDialog.getOpenFileName()", "","*.tdgui", options=options)
+
+        if fn:
+            print('Loading pickle...')
+            load_object = pickle.load(open( fn, "rb" ))
+            filenames = load_object['filenames']
+            shifts = load_object['shifts']
+
+            self.clearTable()
+            self.filenames = filenames
 
 
+            print('Adding series to plot and table...')
+            for i in range(len(self.filenames)):
+                self.addSeries(self.filenames[i])
 
+            print('Applying shifts...')
+            print(self.table_rows-1)
+            for i in range(self.table_rows-1):
+                for j in range(2,6):
+                    it = QTableWidgetItem(str(shifts[i,j-2]))
+                    it = self.Table.setItem(i, j, it)
+                self.updateShifts(i, 2)
+
+            print('Ready!')
 
 #--------------------------------------------------------------------#
 # Execute the program
