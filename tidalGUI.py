@@ -95,8 +95,11 @@ class MyTable(QWidget):
         self.tidedatasets = []
         self.plots = []
         self.peaks = []
+        self.peaks_upd = []
         self.lows = []
+        self.lows_upd = []
         self.plotcolors = list(matplotlib.colors.TABLEAU_COLORS.values())
+        self.scatters = []
 
         #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
         #-------------- Make the input widges --------------#
@@ -291,7 +294,7 @@ class MyTable(QWidget):
         im = QIcon('support_files/ring.png')
         self.ShowPeaks.setIcon(im)
         self.ShowPeaks.setCheckable(True)
-        self.ShowPeaks.clicked.connect(self.showPeaks)
+        self.ShowPeaks.clicked.connect(self.plotSeries)
         self.ShowPeaks.setFixedSize(25,25)
         self.ShowPeaks.setStyleSheet("""
         QPushButton {
@@ -444,34 +447,35 @@ class MyTable(QWidget):
         pt, pwl = td.getPeaks()
         lt, lwl = td.getLows()
         self.peaks.append([pt, pwl])
+        self.peaks_upd.append([pt, pwl])
         self.lows.append([lt, lwl])
+        self.lows_upd.append([lt, lwl])
 
-        # plot the series on the figure
-        plot = self.ax.plot(td.times, td.tides, label = td.name, c = self.plotcolors[self.table_rows - 1])
-        color = plot[-1].get_color()
+        # add the series to the table
+        color = self.plotcolors[self.table_rows - 1]
         item = self.Table.item(self.table_rows - 1, 0)
         item.setForeground(QColor(color))
         item = self.Table.item(self.table_rows - 1, 1)
         item.setForeground(QColor(color))
 
         # update attributes
-        self.plots.append(plot)
         self.table_rows += 1
 
         # update all limits and make the table reactive
-        self.autoUpdateLims()
         self.Table.cellChanged.connect(self.updateShifts)
 
         # enable load and save button
         self.SaveTable.setEnabled(True)
 
         # update canvas
-        if self.ShowPeaks.isChecked(): self.showPeaks()
-        else: self.canvas.draw()
+        self.ax.plot(td.times, td.tides)
+        self.autoUpdateLims()
+        self.plotSeries()
+
+
 
     def autoUpdateLims(self):
         t0,t1 = self.ax.get_xlim()
-
         t0 = matdates.num2date(t0)
         t1 = matdates.num2date(t1)
 
@@ -503,6 +507,42 @@ class MyTable(QWidget):
         self.ax.set_ylim(self.ylim_bot.value(), self.ylim_top.value())
         self.canvas.draw()
 
+    def plotSeries(self):
+
+        self.ax.clear()
+        self.ax.grid('on')
+        self.ax.set_ylabel('Water Level [m]', fontweight = 'bold', fontsize = 9)
+
+        self.scatters = []
+        self.plots = []
+
+        if self.ShowPeaks.isChecked():
+
+            for i in range(len(self.tidedatasets)):
+                td = self.tidedatasets[i]
+
+                color = self.plotcolors[i]
+                color_transp = color[:7] + '33'
+                self.plots.append(self.ax.plot(td.times, td.tides, color = color_transp))
+
+                pt, pwl = self.peaks_upd[i]
+                lt, lwl = self.lows_upd[i]
+
+                self.scatters.append([self.ax.plot(pt, pwl, linestyle = 'None', marker = 'o', mec = color, mfc = '#ffffff00', mew = 0.5),
+                    self.ax.plot(lt, lwl, linestyle = 'None', marker = 'o', mec = color, mfc = '#ffffff00', mew = 0.5)])
+
+
+        else:
+            for i in range(len(self.tidedatasets)):
+
+                td = self.tidedatasets[i]
+                color = self.plotcolors[i][:7] + 'FF'
+                self.plots.append(self.ax.plot(td.times, td.tides, c = color, label = td.name))
+
+        self.updateLims()
+        for i in range(self.table_rows):
+            self.updateShifts(i, 2)
+
     def updateShifts(self, row, col):
         try:
             if col >= 2 and len(self.plots) > 0:
@@ -516,7 +556,25 @@ class MyTable(QWidget):
                 sec = float(self.Table.item(row, 5).text())
                 times_upd = [(t + timedelta(seconds = hr*3600 + min*60 + sec)) for t in times_upd]
 
+                # correct peaks
+                pks_t, pks_wl = self.peaks[row]
+
+                pks_t_upd = [(t + timedelta(seconds = hr*3600 + min*60 + sec)) for t in pks_t]
+                pks_wl_upd = np.array(pks_wl) + float(self.Table.item(row, 2).text())
+                self.peaks_upd[row] = [pks_t_upd, pks_wl_upd]
+
+                # correct lows
+                lws_t, lws_wl = self.lows[row]
+
+                lws_t_upd = [(t + timedelta(seconds = hr*3600 + min*60 + sec)) for t in lws_t]
+                lws_wl_upd = np.array(lws_wl) + float(self.Table.item(row, 2).text())
+                self.lows_upd[row] = [lws_t_upd, lws_wl_upd]
+
+                if self.ShowPeaks.isChecked() == True:
+                    self.scatters[row][0][-1].set_data(pks_t_upd, pks_wl_upd)
+                    self.scatters[row][1][-1].set_data(lws_t_upd, lws_wl_upd)
                 self.plots[row][-1].set_data(times_upd, tides_upd)
+
                 self.canvas.draw()
         except:
             pass
@@ -530,6 +588,7 @@ class MyTable(QWidget):
         self.filenames = []
         self.peaks = []
         self.lows = []
+        self.scatters = []
 
         self.table_rows = 1
 
@@ -574,38 +633,12 @@ class MyTable(QWidget):
                 for j in range(2,6):
                     it = QTableWidgetItem(str(shifts[i,j-2]))
                     it = self.Table.setItem(i, j, it)
-                self.updateShifts(i, 2)
+
+            self.plotSeries()
 
             print('Ready!')
 
-    def showPeaks(self):
-        if self.ShowPeaks.isChecked():
 
-            for i in range(len(self.tidedatasets)):
-                td = self.tidedatasets[i]
-                plot = self.plots[i][-1]
-                color = self.plotcolors[i]
-                color_transp = color[:7] + '33'
-                plot.set_color(color_transp)
-                pt, pwl = self.peaks[i]
-                lt, lwl = self.lows[i]
-                self.ax.plot(pt, pwl, linestyle = 'None', marker = 'o', mec = color, mfc = '#ffffff00', mew = 0.5)
-                self.ax.plot(lt, lwl, linestyle = 'None', marker = 'o', mec = color, mfc = '#ffffff00', mew = 0.5)
-
-            self.canvas.draw()
-
-        else:
-            self.ax.clear()
-            self.ax.grid('on')
-            self.ax.set_ylabel('Water Level [m]', fontweight = 'bold', fontsize = 9)
-            self.updateLims()
-
-            for i in range(len(self.tidedatasets)):
-                td = self.tidedatasets[i]
-                color = self.plotcolors[i][:7] + 'FF'
-                self.plots[i] = self.ax.plot(td.times, td.tides, c = color, label = td.name)
-
-            self.canvas.draw()
 
 #--------------------------------------------------------------------#
 # Execute the program
