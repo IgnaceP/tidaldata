@@ -297,6 +297,27 @@ class TideData:
         df.to_pickle(pathname)
         """
 
+    def save2csv(self, pathname):
+        """
+        Method to save data as a read_csv
+        :param pathname: directory and filename to save as
+        :return:
+        """
+
+        with open(pathname, 'w+') as f:
+            f.write('Year,Month,Day,Hour,Minute,Second,Waterlevel\n')
+            for i in range(len(self.times)):
+                T = self.times[i]
+                year = T.year
+                month = T.month
+                day = T.day
+                hr = T.hour
+                min = T.minute
+                sec = T.second
+                f.write('%d,%d,%d,%d,%d,%d,' % (year, month, day, hr, min, sec))
+                f.write('%.4f\n' % self.tides[i])
+
+
     @staticmethod
     def load(pathname):
         """

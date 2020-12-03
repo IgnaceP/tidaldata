@@ -59,7 +59,11 @@ class Main(QMainWindow):
         self.F = np.zeros([500,500])
 
         self.setWindowTitle(title)
-        self.setWindowIcon(QIcon('support_files/Logo.png'))
+        logo = QIcon()
+        im = QPixmap('support_files/Logo.png')
+        im.setDevicePixelRatio(5)
+        logo.addPixmap(im)
+        self.setWindowIcon(logo)
         self.setGeometry(left,top,width, height)
 
         self.main_widget = MyTable(self)
@@ -471,8 +475,6 @@ class MyTable(QWidget):
         self.ax.plot(td.times, td.tides)
         self.autoUpdateLims()
         self.plotSeries()
-
-
 
     def autoUpdateLims(self):
         t0,t1 = self.ax.get_xlim()
