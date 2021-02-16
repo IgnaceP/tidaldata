@@ -12,7 +12,6 @@ import requests
 import pandas as pd
 import pickle
 from datetime import datetime, timedelta
-import Functions as fun
 import matplotlib.pyplot as plt
 
 # class to hold tide data
@@ -197,14 +196,23 @@ class TideData:
 
         return Peaks_times, Peaks_tides
 
-    def standardize(self, print_mean = True):
+    def standardize(self, start_time = 0, end_time = 0, print_mean = True):
         """
         Method to standardize all water levels to its mean.
         Original water levels are stored as a class attribute 'tides_original'
+        :param start_time: datetime object of start of the requested period
+        :param end_time: datetime object of end of the requested period
         """
+        if start_time == 0:
+            start_time = self.start_time
+        if end_time == 0:
+            end_time = self.end_time
+
+        times, tides = self.getTidesBasedOnPeriod(start_time, end_time)
+        tide_mean = np.nanmean(tides)
 
         self.tides_original = self.tides.copy()
-        self.tides -= self.tide_mean
+        self.tides -= tide_mean
 
         if print_mean:
             print('Mean water level: %.3f m' % self.tide_mean)
@@ -226,10 +234,7 @@ class TideData:
 
         times, tides = self.getTidesBasedOnPeriod(start_time, end_time)
 
-        tides_upd = []
-        for t in tides:
-            tides_upd.append(t+base_level)
-        tides = tides_upd
+        tides = [t+base_level for t in tides]
 
         dT = [0]
         for i in range(1,len(times)):
@@ -316,7 +321,6 @@ class TideData:
                 sec = T.second
                 f.write('%d,%d,%d,%d,%d,%d,' % (year, month, day, hr, min, sec))
                 f.write('%.4f\n' % self.tides[i])
-
 
     @staticmethod
     def load(pathname):
@@ -681,6 +685,33 @@ class TideData:
         else:
             self.times = t2.times + self.times
             self.tides = np.concatenate((t2.tides, self.tides))
+
+        self.calculateTideStatistics()
+
+    def setElevationMLS(self, elevation):
+        """
+        Method to set an attribute with the elevation of the MLS level
+        """
+
+        self.elevationWGS84 = elevation
+
+    def setElevationMLWS(self, elevation):
+        """
+        Method to set an attribute with the elevation of the MLS level
+        Args:
+        - elevation: (Required) float with the elevation
+        """
+
+        self.elevationWGS84 = elevation + self.tide_mean
+
+    def cleanData(self):
+        """
+        Method to clean the data and remove all nans in this tideObject
+        """
+        df = pd.DataFrame({'Times': self.times, 'Tides': np.asarray(self.tides, dtype = float)})
+        df = df.dropna()
+        self.times = list(df['Times'].values)
+        self.tides = df['Tides'].values
 
         self.calculateTideStatistics()
 
