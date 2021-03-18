@@ -134,7 +134,7 @@ class MyTable(QWidget):
 
         # checkbox to standardize data when uploading
         self.Standardize = QCheckBox('Standardize Data')
-        self.Standardize.setChecked(True)
+        self.Standardize.setChecked(False)
         self.Standardize.setStyleSheet("""
             QCheckBox {
             color: rgb(180,180,180);

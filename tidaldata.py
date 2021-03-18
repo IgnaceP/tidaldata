@@ -55,6 +55,8 @@ class TideData:
         self.location = location
         self.timezone = timezone
 
+        self.elevationMSL = -999
+
 
         if len(self.times) > 0 and len(self.tides) == len(self.times):
             self.start_time = self.times[0]
@@ -196,7 +198,7 @@ class TideData:
 
         return Peaks_times, Peaks_tides
 
-    def standardize(self, start_time = 0, end_time = 0, print_mean = True):
+    def standardize(self, start_time = 0, end_time = 0, print_mean = True, standardize_around_MSL = True):
         """
         Method to standardize all water levels to its mean.
         Original water levels are stored as a class attribute 'tides_original'
@@ -214,8 +216,12 @@ class TideData:
         self.tides_original = self.tides.copy()
         self.tides -= tide_mean
 
+        if standardize_around_MSL and self.elevationMSL > -999:
+            self.tides += self.elevationMSL
+
         if print_mean:
-            print('Mean water level: %.3f m' % self.tide_mean)
+            print('Mean water level: %.3f m' % self.elevationMSL)
+
 
     def toLiquidBoundaryFile(self, start_time = 0, end_time = 0, output_path = 'LiquidBoundaryFile.lqd', base_level = 0):
         """
@@ -302,7 +308,7 @@ class TideData:
         df.to_pickle(pathname)
         """
 
-    def save2csv(self, pathname):
+    def save2Csv(self, pathname):
         """
         Method to save data as a read_csv
         :param pathname: directory and filename to save as
@@ -334,6 +340,51 @@ class TideData:
             TideDataInstance = pickle.load(input)
 
         return TideDataInstance
+
+    def fixTimes(self, str_format = '%d-%m-%y %H:%M'):
+        """
+        Translate times which are strings to datetime object
+        """
+        times = self.times
+        tides = self.tides
+        erase = np.ones((len(times)), dtype=bool)
+
+        for i in range(len(times)):
+            t = times[i]
+            if type(t) != datetime:
+                if type(t) == str:
+                    times[i] = datetime.strptime(t,str_format)
+                elif type(t) == int:
+                    if t < 10000:
+                        erase[i] = False
+                elif type(t) == float:
+                    if np.isnan(t): erase[i] = False
+                    if t < 100000: erase[i] = False
+
+        times = list(np.asarray(times)[erase])
+        tides = list(np.asarray(tides)[erase])
+
+        #for t in times:
+        #    if type(t) != datetime: print(t)
+
+        self.times = times
+        self.tides = tides
+
+        self.calculateTideStatistics()
+
+        if len(self.times) > 0 and len(self.tides) == len(self.times):
+            self.start_time = self.times[0]
+            self.end_time = self.times[-1]
+
+            if self.start_time > self.end_time:
+                times = np.asarray(self.times)
+                tides = np.asarray(self.tides)
+                tides = tides[np.argsort(times)]
+                times = times[np.argsort(times)]
+                self.times = times
+                self.tides = tides
+                self.start_time = self.times[0]
+                self.end_time = self.times[-1]
 
     def loadFromPanda(self, pathname):
         """
@@ -688,12 +739,12 @@ class TideData:
 
         self.calculateTideStatistics()
 
-    def setElevationMLS(self, elevation):
+    def setElevationMSL(self, elevation):
         """
         Method to set an attribute with the elevation of the MLS level
         """
 
-        self.elevationWGS84 = elevation
+        self.elevationMSL = elevation
 
     def setElevationMLWS(self, elevation):
         """
@@ -702,7 +753,7 @@ class TideData:
         - elevation: (Required) float with the elevation
         """
 
-        self.elevationWGS84 = elevation + self.tide_mean
+        self.elevationMSL = elevation + self.tide_mean
 
     def cleanData(self):
         """
@@ -714,6 +765,35 @@ class TideData:
         self.tides = df['Tides'].values
 
         self.calculateTideStatistics()
+
+    def save2Npy(self, fn, start_time = 0, end_time = 0):
+        "method to save Time series as numpy array, readable by the T2Viewer"
+
+
+        # Default time values
+        if start_time == 0: start_time = self.start_time
+        if end_time == 0: end_time = self.end_time
+        times, tides = self.getTidesBasedOnPeriod(start_time, end_time)
+        t0 = times[0]
+
+        # time series
+        times = np.asarray([t.timestamp() for t in times])
+        arr = np.column_stack((times, tides))
+        np.save(fn, arr)
+
+    def applyTimeShift(self, td, dir = 'earlier'):
+        if dir == 'earlier':
+            self.times = [t - td for t in self.times]
+            self.start_time = self.times[0]
+            self.end_time = self.times[-1]
+        elif dir == 'later':
+            self.times = [t + td for t in self.times]
+            self.start_time = self.times[0]
+            self.end_time = self.times[-1]
+        else:
+            print("Parameter dir should be either 'earlier' or 'later'.")
+
+
 
 class Functions:
     def printProgressBar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█', printEnd="\r"):
