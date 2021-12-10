@@ -222,7 +222,6 @@ class TideData:
         if print_mean:
             print('Mean water level: %.3f m' % self.elevationMSL)
 
-
     def toLiquidBoundaryFile(self, start_time = 0, end_time = 0, output_path = 'LiquidBoundaryFile.lqd', base_level = 0):
         """
         Method to export a tidal series to a liquid boundary file for the TELEMAC 2D software
@@ -308,7 +307,7 @@ class TideData:
         df.to_pickle(pathname)
         """
 
-    def save2Csv(self, pathname):
+    def save2CSV(self, pathname):
         """
         Method to save data as a read_csv
         :param pathname: directory and filename to save as
@@ -421,6 +420,7 @@ class TideData:
         #------------------------------------------------------------------------------------
         if pathname_atm[0] != '/': pathname_atm = '/' + pathname_atm
         url = 'file://' + pathname_atm
+        print(url)
         data = pd.read_html(url, skiprows=27)
         df = data[0].dropna()
         col = df.columns
@@ -481,27 +481,39 @@ class TideData:
 
         self.calculateTideStatistics()
 
-    def loadFromTextFile(self, pathname_file, seperator = "\t"):
+    def loadFromTextFile(self, pathname_file, seperator = "\t", date_format = 'seperate'):
         """
         Method to populate an empty TideData object based on values from a text file.
         The columns should be ordered: year, month, day, hour, minute, second, waterlevel
         :param pathname_file: Directory of the text file
         :param seperator: seperator between columns in the txt file, default is a tab
+        :date_format: format of the date, sep indicates seperate columns per day, hour, ..., ISO8601 indicates an ISO8601 format
         :return:
         """
         df = pd.read_csv(pathname_file, sep=seperator)
         Times = []
         WaterLevels = []
+
         for i in range(len(df)):
-            year = df[df.columns[0]][i]
-            month = df[df.columns[1]][i]
-            day = df[df.columns[2]][i]
-            hr = df[df.columns[3]][i]
-            if len(df.columns) >= 7:
-                min = df[df.columns[4]][i]
-                sec = df[df.columns[5]][i]
+            if 'sep' in date_format:
+                year = df[df.columns[0]][i]
+                month = df[df.columns[1]][i]
+                day = df[df.columns[2]][i]
+                hr = df[df.columns[3]][i]
+                if len(df.columns) >= 7:
+                    min = df[df.columns[4]][i]
+                    sec = df[df.columns[5]][i]
+                    T = datetime(year, month, day, hr, min, sec)
+                else: T = datetime(year, month, day, hr)
+            elif 'ISO8601' in date_format:
+                date = df[df.columns[0]].values[i]
+                year = int(date[:4])
+                month = int(date[4:6])
+                day = int(date[6:8])
+                hr = int(date.split('T')[1][0:2])
+                min = int(date.split('T')[1][2:4])
+                sec = int(date.split('T')[1][4:6])
                 T = datetime(year, month, day, hr, min, sec)
-            else: T = datetime(year, month, day, hr)
             Times.append(T)
 
             wl = df[df.columns[-1]][i]
@@ -713,10 +725,12 @@ class TideData:
         self.calculateTideStatistics()
         print('Scraped!')
 
-    def merge(self, path):
+    def merge(self, path, corr = 1, bias = 0):
         """
         Method to merge an existing tidal data set instance into the active one
         :param path: path to .tid file to merge
+        :param corr: correction factor to multiply the water levels
+        :param corr: bias to add to the water levels
         :return:
         """
 
@@ -729,6 +743,8 @@ class TideData:
 
         self.start_time = min(t1_start_time, t2_start_time)
         self.end_time = max(t1_end_time, t2_end_time)
+
+        t2.tides = corr*t2.tides + bias
 
         if t1_start_time < t2_start_time:
             self.times += t2.times
@@ -753,7 +769,7 @@ class TideData:
         - elevation: (Required) float with the elevation
         """
 
-        self.elevationMSL = elevation + self.tide_mean
+        self.elevationMLWS = elevation
 
     def cleanData(self):
         """
@@ -854,8 +870,8 @@ class Functions:
             dt = t - T2_t_np
 
             # Get the close values according to the relative timing parameter
-            if rel_timing == 'Later': dt = T2_t_np[(dt > zero) * (dt < time_window)]
-            elif rel_timing == 'Earlier': dt = T2_t_np[(dt < zero) * (abs(dt) < time_window)]
+            if rel_timing.lower() == 'later'.lower(): dt = T2_t_np[(dt > zero) * (dt < time_window)]
+            elif rel_timing.lower() == 'earlier'.lower(): dt = T2_t_np[(dt < zero) * (abs(dt) < time_window)]
             else: dt = T2_t_np[(abs(dt) < time_window)]
 
             if dt:
@@ -871,6 +887,7 @@ class Functions:
                 T2_t_linked.append(dt)
                 T2_d_linked.append(T2_d)
 
+        T2_t_linked = np.asarray([t[0] for t in T2_t_linked])
         T1_result = TideData(TideData1.name, time_series= T1_t_linked, tide_series= T1_d_linked,
                              lat = TideData1.lat, lon= TideData1.lon, timezone= TideData1.timezone,
                              country = TideData1.country, location = TideData1.location)

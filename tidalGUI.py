@@ -33,18 +33,27 @@ import pickle
 #import time
 #import gc
 from datetime import datetime, timedelta
-#import random
+import random
+import argparse
 
 import tidaldata as tidd
 
 os.chdir('/home/ignace/Custom_Libraries/tidaldata/')
 #%%
 
+ap = argparse.ArgumentParser()
+ap.add_argument('-d','--dataload', required=False, help = 'Already load a set of data.')
+ap.add_argument('-D','--Dataload', required=False, help = 'Already load a set of data.')
+
+args = vars(ap.parse_args())
+dataload = args['dataload']
+if args['Dataload']: dataload = args['Dataload']
+
 
 class Main(QMainWindow):
 # create a class with heritance from the QWidget object
 
-    def __init__(self):
+    def __init__(self, dataload = None):
         # assign attributes
         super().__init__()
         # return the parent class from this child class and calls its constructor (constructor = special kind of method to initialize any instance variables (assigning attributes to it))
@@ -66,7 +75,7 @@ class Main(QMainWindow):
         self.setWindowIcon(logo)
         self.setGeometry(left,top,width, height)
 
-        self.main_widget = MyTable(self)
+        self.main_widget = MyTable(self, dataload = dataload)
         self.setCentralWidget(self.main_widget)
 
         self.setStyleSheet("""
@@ -92,17 +101,15 @@ class MyTable(QWidget):
     sig = pyqtSignal(list)
     sigload = pyqtSignal(list)
 
-    def __init__(self, parent):
+    def __init__(self, parent, dataload = None):
         super(QWidget, self).__init__(parent)
 
         self.filenames = []
         self.tidedatasets = []
         self.plots = []
         self.peaks = []
-        self.peaks_upd = []
         self.lows = []
-        self.lows_upd = []
-        self.plotcolors = list(matplotlib.colors.TABLEAU_COLORS.values())
+        self.plotcolors =[[random.random(),random.random(),random.random()] for i in range(20)]
         self.scatters = []
 
         #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%#
@@ -223,6 +230,71 @@ class MyTable(QWidget):
         self.canvas = FigureCanvas(self.figure)
         self.canvas.setFixedHeight(350)
         self.initPlot()
+        self.canvas.mpl_connect('button_release_event', self.autoUpdateLims)
+        self.canvas.mpl_connect('button_press_event', self.autoUpdateLims)
+
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        self.toolbar.hide()
+
+        # buttons to zoom and pan
+        self.zoombut = QPushButton()
+        self.zoombut.setCheckable(True)
+        self.zoombut.setEnabled(False)
+        im = QIcon('support_files/zoom_trans.png')
+        self.zoombut.setIcon(im)
+        self.zoombut.setDisabled(True)
+        self.zoombut.clicked.connect(self.zoom)
+        self.zoombut.setStyleSheet("""
+        QPushButton {
+            border-width: 25px solid white;
+            border-radius: 0px;
+            color: rgb(180,180,180);
+            background-color: rgb(55, 55, 60, 0);
+            }
+        QPushButton:checked {
+            color: rgb(100,100,100,150);
+            background-color: rgb(255, 128, 0);
+            }
+        """)
+
+        self.panbut = QPushButton()
+        self.panbut.setCheckable(True)
+        self.panbut.setEnabled(False)
+        im = QIcon('support_files/pan_trans.png')
+        self.panbut.setIcon(im)
+        self.panbut.setDisabled(True)
+        self.panbut.clicked.connect(self.pan)
+        self.panbut.setStyleSheet("""
+        QPushButton {
+            border-width: 25px solid white;
+            border-radius: 0px;
+            color: rgb(180,180,180);
+            background-color: rgb(55, 55, 60, 0);
+            }
+        QPushButton:checked {
+            color: rgb(100,100,100,150);
+            background-color: rgb(255, 128, 0);
+            }
+        """)
+
+        self.homebut = QPushButton()
+        self.homebut.setEnabled(False)
+        im = QIcon('support_files/home_trans.png')
+        self.homebut.setIcon(im)
+        self.homebut.setDisabled(True)
+        self.homebut.clicked.connect(self.home)
+        self.homebut.setStyleSheet("""
+        QPushButton {
+            border-width: 25px solid white;
+            border-radius: 0px;
+            color: rgb(180,180,180,50);
+            background-color: rgb(25, 25, 60, 0);
+            }
+        QPushButton:pressed {
+            color: rgb(100,100,100,150);
+            background-color: rgb(255, 128, 0);
+            }
+        """)
 
         # ------------#
         # table #
@@ -337,6 +409,12 @@ class MyTable(QWidget):
         grid_params.addWidget(ylim_bot, 0, 9)
         grid_params.addWidget(self.ylim_bot, 0, 10)
 
+        canvas_but = QVBoxLayout()
+        canvas_but.addWidget(self.zoombut)
+        canvas_but.addWidget(self.panbut)
+        canvas_but.addWidget(self.homebut)
+        canvas_but.addStretch()
+
         table_but = QVBoxLayout()
         table_but.addWidget(self.SaveTable)
         table_but.addWidget(self.LoadTable)
@@ -345,13 +423,17 @@ class MyTable(QWidget):
         table_but.addStretch()
 
         self.grid.addLayout(grid_params, 0, 0, 1, 2)
-        self.grid.addWidget(self.canvas, 1, 0, 1, 2)
+        self.grid.addWidget(self.canvas, 1, 0, 1, 1)
         self.grid.addWidget(self.Table, 2, 0)
         self.grid.addLayout(table_but, 2, 1)
+        self.grid.addLayout(canvas_but, 1, 1)
 
         self.setLayout(self.grid)
 
         self.show()
+
+        # load datasets if flag is given
+        if dataload: self.loadDefaultData(dataload)
 
         #-------------------------------------#
         #-------------- Methods --------------#
@@ -384,13 +466,13 @@ class MyTable(QWidget):
         self.Table.setRowCount(1)
 
         #Column count
-        self.Table.setColumnCount(6)
-        self.Table.setHorizontalHeaderLabels(['Name TideData','Tidal Range (m)','Vertical shift (m)','Time shift (hr)', 'Time shift (min)', 'Time shift (s)'])
+        self.Table.setColumnCount(2)
+        self.Table.setHorizontalHeaderLabels(['Name TideData','Tidal Range (m)'])
 
         self.Table.setItem(0,0, QTableWidgetItem("Name"))
 
         #Table will fit the screen horizontally
-        [self.Table.setColumnWidth(i, 150) for i in range(1,6)]
+        [self.Table.setColumnWidth(i, 350) for i in range(0,2)]
         self.Table.horizontalHeader().setSectionResizeMode(0,
             QHeaderView.Stretch)
 
@@ -441,22 +523,17 @@ class MyTable(QWidget):
         item.setFlags(Qt.ItemIsEnabled)
         self.Table.setItem(self.table_rows - 1, 1, item)
 
+        """
         # fill in zero for all shifts
         for i in range(2,6):
             item = QTableWidgetItem(str(0))
             item.setForeground(QColor(180, 180, 180))
             self.Table.setItem(self.table_rows - 1, i, item)
-
-        # calculate peaks and lows
-        pt, pwl = td.getPeaks()
-        lt, lwl = td.getLows()
-        self.peaks.append([pt, pwl])
-        self.peaks_upd.append([pt, pwl])
-        self.lows.append([lt, lwl])
-        self.lows_upd.append([lt, lwl])
+        """
 
         # add the series to the table
         color = self.plotcolors[self.table_rows - 1]
+        color = qRgb(255*color[0], 255*color[1], 255*color[2])
         item = self.Table.item(self.table_rows - 1, 0)
         item.setForeground(QColor(color))
         item = self.Table.item(self.table_rows - 1, 1)
@@ -466,17 +543,22 @@ class MyTable(QWidget):
         self.table_rows += 1
 
         # update all limits and make the table reactive
-        self.Table.cellChanged.connect(self.updateShifts)
+        #self.Table.cellChanged.connect(self.updateShifts)
 
         # enable load and save button
         self.SaveTable.setEnabled(True)
 
         # update canvas
         self.ax.plot(td.times, td.tides)
-        self.autoUpdateLims()
+        self.autoUpdateLims(0)
         self.plotSeries()
 
-    def autoUpdateLims(self):
+        # enable buttons
+        self.zoombut.setEnabled(True)
+        self.panbut.setEnabled(True)
+        self.homebut.setEnabled(True)
+
+    def autoUpdateLims(self,_):
         t0,t1 = self.ax.get_xlim()
         t0 = matdates.num2date(t0)
         t1 = matdates.num2date(t1)
@@ -520,15 +602,24 @@ class MyTable(QWidget):
 
         if self.ShowPeaks.isChecked():
 
+            if len(self.peaks) < len(self.tidedatasets):
+                for td in self.tidedatasets:
+                    # calculate peaks and lows
+                    pt, pwl = td.getPeaks()
+                    lt, lwl = td.getLows()
+                    self.peaks.append([pt, pwl])
+                    self.lows.append([lt, lwl])
+
             for i in range(len(self.tidedatasets)):
                 td = self.tidedatasets[i]
 
                 color = self.plotcolors[i]
-                color_transp = color[:7] + '33'
+                print(color)
+                color_transp = color[:7] + [0.33]
                 self.plots.append(self.ax.plot(td.times, td.tides, color = color_transp))
 
-                pt, pwl = self.peaks_upd[i]
-                lt, lwl = self.lows_upd[i]
+                pt, pwl = self.peaks[i]
+                lt, lwl = self.lows[i]
 
                 self.scatters.append([self.ax.plot(pt, pwl, linestyle = 'None', marker = 'o', mec = color, mfc = '#ffffff00', mew = 0.5),
                     self.ax.plot(lt, lwl, linestyle = 'None', marker = 'o', mec = color, mfc = '#ffffff00', mew = 0.5)])
@@ -538,48 +629,13 @@ class MyTable(QWidget):
             for i in range(len(self.tidedatasets)):
 
                 td = self.tidedatasets[i]
-                color = self.plotcolors[i][:7] + 'FF'
+                color = self.plotcolors[i]
                 self.plots.append(self.ax.plot(td.times, td.tides, c = color, label = td.name))
 
         self.updateLims()
-        for i in range(self.table_rows):
-            self.updateShifts(i, 2)
 
-    def updateShifts(self, row, col):
-        try:
-            if col >= 2 and len(self.plots) > 0:
-
-                td = self.tidedatasets[row]
-                times_upd, tides_upd = td.times.copy(), td.tides.copy()
-
-                tides_upd += float(self.Table.item(row, 2).text())
-                hr = float(self.Table.item(row, 3).text())
-                min = float(self.Table.item(row, 4).text())
-                sec = float(self.Table.item(row, 5).text())
-                times_upd = [(t + timedelta(seconds = hr*3600 + min*60 + sec)) for t in times_upd]
-
-                # correct peaks
-                pks_t, pks_wl = self.peaks[row]
-
-                pks_t_upd = [(t + timedelta(seconds = hr*3600 + min*60 + sec)) for t in pks_t]
-                pks_wl_upd = np.array(pks_wl) + float(self.Table.item(row, 2).text())
-                self.peaks_upd[row] = [pks_t_upd, pks_wl_upd]
-
-                # correct lows
-                lws_t, lws_wl = self.lows[row]
-
-                lws_t_upd = [(t + timedelta(seconds = hr*3600 + min*60 + sec)) for t in lws_t]
-                lws_wl_upd = np.array(lws_wl) + float(self.Table.item(row, 2).text())
-                self.lows_upd[row] = [lws_t_upd, lws_wl_upd]
-
-                if self.ShowPeaks.isChecked() == True:
-                    self.scatters[row][0][-1].set_data(pks_t_upd, pks_wl_upd)
-                    self.scatters[row][1][-1].set_data(lws_t_upd, lws_wl_upd)
-                self.plots[row][-1].set_data(times_upd, tides_upd)
-
-                self.canvas.draw()
-        except:
-            pass
+        #for i in range(self.table_rows):
+        #    self.updateShifts(i, 2)
 
     def clearTable(self):
         self.Table.clearContents()
@@ -631,14 +687,52 @@ class MyTable(QWidget):
             for i in range(len(self.filenames)):
                 self.addSeries(self.filenames[i])
 
-            for i in range(self.table_rows-1):
+                """            for i in range(self.table_rows-1):
                 for j in range(2,6):
                     it = QTableWidgetItem(str(shifts[i,j-2]))
-                    it = self.Table.setItem(i, j, it)
+                    it = self.Table.setItem(i, j, it)"""
 
             self.plotSeries()
 
             print('Ready!')
+
+    def home(self):
+            self.toolbar.home()
+            self.autoUpdateLims(0)
+
+    def zoom(self):
+        if self.zoombut.isChecked():
+            self.toolbar.zoom()
+            self.panbut.setChecked(False)
+        else:
+            self.toolbar.zoom(False)
+
+    def pan(self):
+        if self.panbut.isChecked():
+            self.toolbar.pan()
+            self.zoombut.setChecked(False)
+        else:
+            self.toolbar.zoom(False)
+
+    def loadDefaultData(self, dataload):
+        if dataload.upper() == 'JDN' or 'JAN' in dataload.upper():
+            dir = '/home/ignace/Documents/PhD/Data/Tide_Gauge_Data/After2017/TideDataSets/JanDeNul/'
+        elif 'INOCAR' in dataload.upper() and 'BEFORE' in dataload.upper():
+            dir = '/home/ignace/Documents/PhD/Data/Tide_Gauge_Data/Before2017/TideDataSets/INOCAR/'
+        elif 'INOCAR' in dataload.upper():
+            dir = '/home/ignace/Documents/PhD/Data/Tide_Gauge_Data/Before2017/TideDataSets/INOCAR/'
+        elif 'SLA' in dataload.upper():
+            dir = '/home/ignace/Documents/PhD/Data/El-Niño/SLA/TideDataSets/'
+        else:
+            dir = None
+
+        if dir:
+            for file in os.listdir(dir):
+                if file.endswith('.tid'):
+                    print(f'Loading {file}...')
+                    self.addSeries(dir + file)
+            print('All datasets are loaded!')
+        else: print('dataload argument not recognised!')
 
 
 
@@ -646,6 +740,6 @@ class MyTable(QWidget):
 # Execute the program
 
 app = QApplication([])
-window = Main()
+window = Main(dataload = dataload)
 window.show()
 app.exec_()
